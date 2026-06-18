@@ -1,7 +1,7 @@
 # Berth Scheduling: Greedy Heuristic vs. Exact MILP
 
-A small port-scheduling problem solved two ways — a cheap heuristic and an
-exact mixed-integer linear program — with the actual trade-off between them
+A small port-scheduling problem solved two ways, a cheap heuristic and an
+exact mixed-integer linear program, with the actual trade-off between them
 measured rather than assumed. Built as a fast, scoped companion to a larger
 PPO/GAE-based port-scheduling project elsewhere in my portfolio: that
 project handles sequential, uncertain scheduling decisions with
