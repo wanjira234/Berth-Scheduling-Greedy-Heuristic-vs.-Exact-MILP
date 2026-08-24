@@ -125,6 +125,27 @@ python src/cli.py --vessels 20 --berths 4 --tight --time-limit 60
 python src/cli.py --vessels 12 --berths 3 --tight --quiet
 ```
 
+## Web UI
+
+For interactive exploration (e.g. a walkthrough with someone who'd rather
+click than type flags), there's a small browser UI that drives the exact
+same code:
+
+```bash
+python app.py            # then open http://localhost:8000
+```
+
+`app.py` is a standard-library HTTP server — no web framework, nothing to
+`pip install` beyond the requirements above. It serves `index.html` and
+exposes one endpoint, `POST /solve`, which calls the real `greedy_schedule`
+and `milp_schedule` (CBC solver and all) and returns both schedules as JSON.
+The page lets you set vessel/berth counts, seed, the tight/loose due-date
+toggle and the MILP time limit, then shows the headline comparison, the
+greedy-vs-MILP verdict, and a Gantt-style timeline of each berth with tardy
+vessels highlighted. Because it wraps the same functions the CLI does, the
+numbers on the page match the numbers `src/cli.py` prints for the same
+instance.
+
 ## Running the tests
 
 ```bash
@@ -151,6 +172,8 @@ berth-scheduling/
 │   └── cli.py             # comparison CLI
 ├── tests/
 │   └── test_scheduling.py
+├── app.py              # stdlib web server wrapping the two solvers
+├── index.html          # browser UI (controls + Gantt + comparison)
 ├── requirements.txt
 └── README.md
 ```

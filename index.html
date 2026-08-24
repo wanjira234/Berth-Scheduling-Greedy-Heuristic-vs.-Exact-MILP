@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Berth Scheduling — Greedy vs. Exact MILP</title>
+<style>
+  :root {
+    --ink: #10243b;
+    --muted: #5b6b7d;
+    --line: #dde5ec;
+    --page: #eef2f6;
+    --surface: #ffffff;
+    --ocean: #1361a0;
+    --ocean-dark: #0d4a7c;
+    --teal: #17a2b8;
+    --ontime: #2ea089;
+    --ontime-soft: #e4f3ef;
+    --late: #e0653a;
+    --late-soft: #fbe9e1;
+    --amber: #c9821a;
+    --red: #c0392b;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --shadow: 0 1px 2px rgba(16,36,59,.06), 0 6px 20px rgba(16,36,59,.06);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: var(--sans);
+    color: var(--ink);
+    background: var(--page);
+    line-height: 1.5;
+  }
+  header {
+    background: linear-gradient(135deg, var(--ocean-dark), var(--ocean));
+    color: #fff;
+    padding: 28px 24px;
+  }
+  header .wrap { max-width: 1080px; margin: 0 auto; }
+  header h1 { margin: 0 0 6px; font-size: 22px; letter-spacing: -.2px; }
+  header p { margin: 0; color: #cfe1f0; font-size: 14px; max-width: 760px; }
+  main { max-width: 1080px; margin: 0 auto; padding: 24px; }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    box-shadow: var(--shadow);
+    padding: 20px;
+    margin-bottom: 20px;
+  }
+  .card h2 {
+    margin: 0 0 14px;
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    color: var(--muted);
+    font-weight: 700;
+  }
+
+  /* ---- Controls ---- */
+  .controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 16px; align-items: end; }
+  .field label { display: block; font-size: 12px; font-weight: 600; color: var(--muted); margin-bottom: 6px; }
+  .field input[type="number"] {
+    width: 100%; padding: 9px 10px; font-family: var(--mono); font-size: 14px;
+    border: 1px solid var(--line); border-radius: 8px; background: #fff; color: var(--ink);
+  }
+  .field input:focus { outline: 2px solid var(--ocean); outline-offset: 0; border-color: var(--ocean); }
+  .toggle { display: flex; align-items: center; gap: 8px; padding: 9px 0; }
+  .toggle input { width: 16px; height: 16px; accent-color: var(--ocean); }
+  .toggle label { font-size: 14px; font-weight: 600; color: var(--ink); margin: 0; }
+  .toggle .hint { font-size: 12px; color: var(--muted); font-weight: 400; }
+
+  .actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 16px; }
+  button.solve {
+    background: var(--ocean); color: #fff; border: none; border-radius: 8px;
+    padding: 11px 22px; font-size: 15px; font-weight: 600; cursor: pointer;
+    transition: background .15s;
+  }
+  button.solve:hover { background: var(--ocean-dark); }
+  button.solve:disabled { opacity: .6; cursor: default; }
+
+  .presets { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+  .presets span.plabel { font-size: 12px; color: var(--muted); align-self: center; margin-right: 2px; }
+  .chip {
+    border: 1px solid var(--line); background: #fff; color: var(--ocean);
+    border-radius: 999px; padding: 5px 12px; font-size: 12.5px; font-weight: 600; cursor: pointer;
+  }
+  .chip:hover { border-color: var(--ocean); background: #f3f8fc; }
+
+  /* ---- Status / spinner ---- */
+  #status { font-size: 14px; color: var(--muted); display: flex; align-items: center; gap: 10px; min-height: 20px; }
+  .spinner {
+    width: 16px; height: 16px; border: 2px solid var(--line); border-top-color: var(--ocean);
+    border-radius: 50%; animation: spin .8s linear infinite; display: inline-block;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .err { color: var(--red); font-weight: 600; }
+
+  /* ---- Verdict banner ---- */
+  .verdict { border-radius: 10px; padding: 14px 16px; font-size: 15px; font-weight: 600; border: 1px solid; }
+  .verdict.improve { background: var(--ontime-soft); border-color: #b8ddd3; color: #1c6b5c; }
+  .verdict.tie { background: #eef4fb; border-color: #cfe0f2; color: var(--ocean-dark); }
+  .verdict.worse_timelimit { background: #fdf3e2; border-color: #f0dcb6; color: var(--amber); }
+  .verdict.worse_optimal { background: var(--late-soft); border-color: #f1c4b3; color: var(--red); }
+
+  /* ---- Metric comparison ---- */
+  .metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 16px; }
+  .metric { border: 1px solid var(--line); border-radius: 10px; padding: 16px; position: relative; }
+  .metric.winner { border-color: var(--ontime); box-shadow: 0 0 0 1px var(--ontime) inset; }
+  .metric .mname { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+  .metric .mbig { font-family: var(--mono); font-size: 30px; font-weight: 600; margin: 6px 0 2px; }
+  .metric .msub { font-size: 12.5px; color: var(--muted); }
+  .metric .mrows { margin-top: 12px; border-top: 1px dashed var(--line); padding-top: 10px; font-size: 13px; }
+  .metric .mrow { display: flex; justify-content: space-between; padding: 3px 0; }
+  .metric .mrow span:first-child { color: var(--muted); }
+  .metric .mrow span:last-child { font-family: var(--mono); }
+  .badge { position: absolute; top: 12px; right: 12px; font-size: 10.5px; font-weight: 700; letter-spacing: .05em;
+    text-transform: uppercase; background: var(--ontime); color: #fff; border-radius: 999px; padding: 3px 9px; }
+
+  /* ---- Gantt ---- */
+  .legend { display: flex; gap: 18px; align-items: center; font-size: 12.5px; color: var(--muted); margin-bottom: 4px; }
+  .legend .sw { display: inline-block; width: 14px; height: 14px; border-radius: 3px; vertical-align: -2px; margin-right: 6px; }
+  .charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 20px; }
+  .chart h3 { margin: 0 0 10px; font-size: 14px; }
+  .chart h3 .tag { font-family: var(--mono); font-size: 12px; color: var(--muted); font-weight: 400; }
+
+  .gantt { font-size: 12px; }
+  .grow { display: grid; grid-template-columns: 64px 1fr; align-items: center; height: 34px; }
+  .rowlabel { color: var(--muted); font-weight: 600; padding-right: 10px; text-align: right; }
+  .track { position: relative; height: 26px; background: #f7f9fb; border-radius: 5px; border: 1px solid var(--line); overflow: hidden; }
+  .grid { position: absolute; top: 0; bottom: 0; width: 1px; background: #e7edf2; }
+  .bar {
+    position: absolute; top: 3px; height: 20px; border-radius: 4px; color: #fff;
+    font-size: 11px; font-weight: 600; line-height: 20px; padding: 0 5px; white-space: nowrap;
+    overflow: hidden; min-width: 3px; cursor: default; box-shadow: 0 1px 1px rgba(0,0,0,.12);
+  }
+  .bar.ontime { background: var(--ontime); }
+  .bar.late { background: var(--late); }
+  .axis { display: grid; grid-template-columns: 64px 1fr; height: 20px; }
+  .axis .ticks { position: relative; }
+  .axis .tick { position: absolute; font-size: 11px; color: var(--muted); transform: translateX(-50%); white-space: nowrap; }
+  .axis .tick::before { content: ""; position: absolute; top: -6px; left: 50%; width: 1px; height: 4px; background: var(--line); }
+  .axis-caption { text-align: center; font-size: 11px; color: var(--muted); margin-top: 14px; }
+
+  /* ---- Instance table ---- */
+  details { margin-top: 4px; }
+  summary { cursor: pointer; font-size: 13px; font-weight: 600; color: var(--ocean); }
+  table.instance { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 13px; }
+  table.instance th, table.instance td { text-align: right; padding: 6px 10px; border-bottom: 1px solid var(--line); font-family: var(--mono); }
+  table.instance th { color: var(--muted); font-weight: 600; font-family: var(--sans); font-size: 12px; }
+  table.instance td:first-child, table.instance th:first-child { text-align: left; }
+
+  .hidden { display: none; }
+  footer { max-width: 1080px; margin: 0 auto; padding: 8px 24px 40px; color: var(--muted); font-size: 12.5px; }
+  code { font-family: var(--mono); background: #e9eef3; padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+  @media (max-width: 560px) { .metrics { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <h1>Berth Scheduling — Greedy Heuristic vs. Exact MILP</h1>
+    <p>
+      Vessels arrive at a port and must be assigned to berths. A cheap greedy rule and an exact
+      mixed-integer program each build a schedule; the goal is to minimize total weighted tardiness.
+      Change the instance below and watch where the exact solver wins — and where it can't keep up.
+    </p>
+  </div>
+</header>
+
+<main>
+  <!-- Controls -->
+  <section class="card">
+    <h2>Instance</h2>
+    <div class="controls">
+      <div class="field">
+        <label for="vessels">Vessels</label>
+        <input type="number" id="vessels" min="2" max="24" value="9" />
+      </div>
+      <div class="field">
+        <label for="berths">Berths</label>
+        <input type="number" id="berths" min="1" max="8" value="2" />
+      </div>
+      <div class="field">
+        <label for="seed">Seed</label>
+        <input type="number" id="seed" value="3" />
+      </div>
+      <div class="field">
+        <label for="timeLimit">MILP time limit (s)</label>
+        <input type="number" id="timeLimit" min="1" max="60" value="10" />
+      </div>
+      <div class="field">
+        <div class="toggle">
+          <input type="checkbox" id="tight" checked />
+          <label for="tight">Tight due dates <span class="hint">(congestion bites)</span></label>
+        </div>
+      </div>
+    </div>
+    <div class="presets">
+      <span class="plabel">Try:</span>
+      <button class="chip" data-v="9" data-b="2" data-s="3" data-t="1" data-tl="10">MILP wins (9×2, tight)</button>
+      <button class="chip" data-v="8" data-b="2" data-s="7" data-t="0" data-tl="10">Uncongested (8×2, loose)</button>
+      <button class="chip" data-v="12" data-b="3" data-s="7" data-t="1" data-tl="15">Crossover (12×3, tight)</button>
+    </div>
+    <div class="actions">
+      <button class="solve" id="solveBtn">Run comparison</button>
+      <div id="status"></div>
+    </div>
+  </section>
+
+  <!-- Results -->
+  <section id="results" class="hidden">
+    <div class="card">
+      <h2>Result</h2>
+      <div id="verdict" class="verdict"></div>
+      <div class="metrics" id="metrics"></div>
+    </div>
+
+    <div class="card">
+      <h2>Schedules</h2>
+      <div class="legend">
+        <span><span class="sw" style="background:var(--ontime)"></span>On time</span>
+        <span><span class="sw" style="background:var(--late)"></span>Tardy (finished after due date)</span>
+        <span style="margin-left:auto">Hover a bar for details</span>
+      </div>
+      <div class="charts">
+        <div class="chart"><h3>Greedy <span class="tag" id="greedyTag"></span></h3><div id="greedyGantt" class="gantt"></div></div>
+        <div class="chart"><h3>MILP <span class="tag" id="milpTag"></span></h3><div id="milpGantt" class="gantt"></div></div>
+      </div>
+      <div class="axis-caption">Horizontal axis: time (arbitrary units). Rows are berths.</div>
+    </div>
+
+    <div class="card">
+      <details>
+        <summary>Problem instance (per-vessel arrival, duration, due, weight)</summary>
+        <table class="instance" id="instanceTable"></table>
+      </details>
+    </div>
+  </section>
+</main>
+
+<footer>
+  Numbers come from the project's real code — <code>greedy.py</code> and the CBC-solved
+  <code>milp.py</code> — served by <code>app.py</code>. This UI adds no scheduling logic of its own.
+</footer>
+
+<script>
+  "use strict";
+
+  const $ = (id) => document.getElementById(id);
+  const fmt = (n, d = 2) => Number(n).toFixed(d);
+
+  // Presets fill the form (they don't auto-run, so the interviewer stays in control).
+  document.querySelectorAll(".chip").forEach((chip) => {
+    chip.addEventListener("click", () => {
+      $("vessels").value = chip.dataset.v;
+      $("berths").value = chip.dataset.b;
+      $("seed").value = chip.dataset.s;
+      $("tight").checked = chip.dataset.t === "1";
+      $("timeLimit").value = chip.dataset.tl;
+    });
+  });
+
+  $("solveBtn").addEventListener("click", solve);
+
+  async function solve() {
+    const btn = $("solveBtn");
+    const status = $("status");
+    const timeLimit = clampInt($("timeLimit").value, 1, 60, 10);
+
+    const params = {
+      vessels: clampInt($("vessels").value, 2, 24, 8),
+      berths: clampInt($("berths").value, 1, 8, 2),
+      seed: parseInt($("seed").value, 10) || 0,
+      tight: $("tight").checked,
+      time_limit: timeLimit,
+    };
+
+    btn.disabled = true;
+    status.innerHTML = `<span class="spinner"></span> Solving… the MILP can take up to ${timeLimit}s to certify.`;
+
+    try {
+      const res = await fetch("/solve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(params),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      render(data);
+      status.textContent = "";
+    } catch (e) {
+      status.innerHTML = `<span class="err">Error: ${escapeHtml(e.message)}</span>`;
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  function clampInt(v, lo, hi, dflt) {
+    let n = parseInt(v, 10);
+    if (isNaN(n)) n = dflt;
+    return Math.max(lo, Math.min(hi, n));
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, (c) =>
+      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  }
+
+  function render(data) {
+    $("results").classList.remove("hidden");
+    renderVerdict(data.verdict);
+    renderMetrics(data.greedy, data.milp);
+
+    // Shared time scale so both charts are directly comparable.
+    const allFinish = [...data.greedy.assignments, ...data.milp.assignments].map((a) => a.finish);
+    const allDue = data.instance.map((v) => v.due);
+    const maxTime = niceCeil(Math.max(1, ...allFinish, ...allDue));
+
+    $("greedyTag").textContent = `total weighted tardiness ${fmt(data.greedy.total_weighted_tardiness)}`;
+    $("milpTag").textContent = `total weighted tardiness ${fmt(data.milp.total_weighted_tardiness)}`;
+    renderGantt("greedyGantt", data.greedy.assignments, data.params.berths, maxTime, byId(data.instance));
+    renderGantt("milpGantt", data.milp.assignments, data.params.berths, maxTime, byId(data.instance));
+
+    renderInstance(data.instance);
+    $("results").scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  function byId(instance) {
+    const m = {};
+    instance.forEach((v) => (m[v.id] = v));
+    return m;
+  }
+
+  function renderVerdict(v) {
+    const el = $("verdict");
+    el.className = "verdict " + v.kind;
+    el.textContent = v.message;
+  }
+
+  function renderMetrics(greedy, milp) {
+    const gWins = greedy.total_weighted_tardiness < milp.total_weighted_tardiness - 0.01;
+    const mWins = milp.total_weighted_tardiness < greedy.total_weighted_tardiness - 0.01;
+    $("metrics").innerHTML =
+      metricCard("Greedy", greedy.total_weighted_tardiness, gWins, [
+        ["Solve time", `${fmt(greedy.solve_ms, 3)} ms`],
+        ["Total tardiness", fmt(greedy.total_tardiness)],
+        ["Makespan", fmt(greedy.makespan)],
+        ["Method", "list scheduling"],
+      ]) +
+      metricCard("MILP", milp.total_weighted_tardiness, mWins, [
+        ["Solve time", `${fmt(milp.solve_seconds, 2)} s`],
+        ["Status", milp.status],
+        ["Binary vars", String(milp.n_binary_vars)],
+        ["Makespan", fmt(milp.makespan)],
+      ]);
+  }
+
+  function metricCard(name, big, winner, rows) {
+    const rowsHtml = rows
+      .map((r) => `<div class="mrow"><span>${r[0]}</span><span>${escapeHtml(r[1])}</span></div>`)
+      .join("");
+    return `<div class="metric ${winner ? "winner" : ""}">
+      ${winner ? '<span class="badge">Best</span>' : ""}
+      <div class="mname">${name}</div>
+      <div class="mbig">${fmt(big)}</div>
+      <div class="msub">total weighted tardiness</div>
+      <div class="mrows">${rowsHtml}</div>
+    </div>`;
+  }
+
+  function renderGantt(elId, assignments, nBerths, maxTime, instMap) {
+    const ticks = makeTicks(maxTime);
+    let html = "";
+    for (let b = 0; b < nBerths; b++) {
+      const bars = assignments
+        .filter((a) => a.berth === b)
+        .map((a) => {
+          const left = (a.start / maxTime) * 100;
+          const width = Math.max(((a.finish - a.start) / maxTime) * 100, 0.6);
+          const v = instMap[a.vessel_id] || {};
+          const cls = a.tardiness > 0 ? "late" : "ontime";
+          const tip =
+            `Vessel ${a.vessel_id}\n` +
+            `berth ${a.berth}\n` +
+            `start ${fmt(a.start)} → finish ${fmt(a.finish)}\n` +
+            `due ${v.due != null ? fmt(v.due) : "?"} · weight ${v.weight != null ? fmt(v.weight) : "?"}\n` +
+            `tardiness ${fmt(a.tardiness)} (weighted ${fmt(a.weighted_tardiness)})`;
+          return `<div class="bar ${cls}" style="left:${left}%;width:${width}%" title="${tip}">V${a.vessel_id}</div>`;
+        })
+        .join("");
+      const grid = ticks
+        .map((t) => `<div class="grid" style="left:${(t / maxTime) * 100}%"></div>`)
+        .join("");
+      html += `<div class="grow"><div class="rowlabel">Berth ${b}</div><div class="track">${grid}${bars}</div></div>`;
+    }
+    const tickLabels = ticks
+      .map((t) => `<span class="tick" style="left:${(t / maxTime) * 100}%">${t}</span>`)
+      .join("");
+    html += `<div class="axis"><div></div><div class="ticks">${tickLabels}</div></div>`;
+    $(elId).innerHTML = html;
+  }
+
+  function renderInstance(instance) {
+    const head =
+      "<tr><th>Vessel</th><th>Arrival</th><th>Duration</th><th>Due</th><th>Weight</th></tr>";
+    const body = instance
+      .map(
+        (v) =>
+          `<tr><td>V${v.id}</td><td>${fmt(v.arrival, 1)}</td><td>${fmt(v.duration, 1)}</td><td>${fmt(
+            v.due,
+            1
+          )}</td><td>${fmt(v.weight, 2)}</td></tr>`
+      )
+      .join("");
+    $("instanceTable").innerHTML = head + body;
+  }
+
+  // ---- axis helpers ----
+  function niceCeil(x) {
+    // Round the max time up to a clean value for headroom on the axis.
+    const step = niceStep(x / 5);
+    return Math.ceil(x / step) * step;
+  }
+  function niceStep(raw) {
+    const pow = Math.pow(10, Math.floor(Math.log10(raw || 1)));
+    const n = raw / pow;
+    const base = n <= 1 ? 1 : n <= 2 ? 2 : n <= 5 ? 5 : 10;
+    return base * pow;
+  }
+  function makeTicks(maxTime) {
+    const step = niceStep(maxTime / 5);
+    const ticks = [];
+    for (let t = 0; t <= maxTime + 1e-9; t += step) ticks.push(Math.round(t * 100) / 100);
+    return ticks;
+  }
+</script>
+</body>
+</html>
