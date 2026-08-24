@@ -128,23 +128,60 @@ python src/cli.py --vessels 12 --berths 3 --tight --quiet
 ## Web UI
 
 For interactive exploration (e.g. a walkthrough with someone who'd rather
-click than type flags), there's a small browser UI that drives the exact
-same code:
+click than type flags), there are two browser UIs that drive the exact same
+code. Use whichever suits where you want to host it.
+
+### Streamlit (recommended — easiest to share publicly)
+
+Built on Streamlit so it deploys for free to
+[Streamlit Community Cloud](https://share.streamlit.io) — no server, no
+ports, just a shareable URL. Same Gantt charts, same verdict logic, same
+presets, same numbers.
+
+```bash
+pip install -r requirements.txt        # adds streamlit + plotly
+streamlit run streamlit_app.py         # opens http://localhost:8501
+```
+
+**Deploy it publicly** (zero cost):
+
+1. Push the repo to GitHub.
+2. Go to [share.streamlit.io](https://share.streamlit.io) and log in with
+   your GitHub account.
+3. Click **New app**, pick this repo, use branch `main` (or `master`), and
+   set the main file path to `streamlit_app.py`.
+4. Click **Deploy**. Streamlit Cloud reads `requirements.txt` automatically,
+   so PuLP, Streamlit, and Plotly are installed for you. The first boot
+   takes a minute or two, then you get a permanent `share.streamlit.io/...`
+   URL you can send anyone.
+
+The sidebar has vessels, berths, seed, the tight-due-date toggle, the MILP
+time limit, and three one-click presets (including the "MILP wins" and
+"Crossover" cases the README describes above). Hover bars in the Plotly
+Gantt charts for per-vessel detail.
+
+### Standalone stdlib server (localhost only)
+
+If you'd rather not use Streamlit, `app.py` + `index.html` is a zero-framework
+browser UI that runs purely on Python's standard library HTTP server:
 
 ```bash
 python app.py            # then open http://localhost:8000
 ```
 
-`app.py` is a standard-library HTTP server — no web framework, nothing to
-`pip install` beyond the requirements above. It serves `index.html` and
-exposes one endpoint, `POST /solve`, which calls the real `greedy_schedule`
-and `milp_schedule` (CBC solver and all) and returns both schedules as JSON.
-The page lets you set vessel/berth counts, seed, the tight/loose due-date
-toggle and the MILP time limit, then shows the headline comparison, the
-greedy-vs-MILP verdict, and a Gantt-style timeline of each berth with tardy
-vessels highlighted. Because it wraps the same functions the CLI does, the
-numbers on the page match the numbers `src/cli.py` prints for the same
-instance.
+It serves `index.html` and exposes one endpoint, `POST /solve`, which calls
+the real `greedy_schedule` and `milp_schedule` (CBC solver and all) and
+returns both schedules as JSON. The page lets you set vessel/berth counts,
+seed, the tight/loose due-date toggle and the MILP time limit, then shows
+the headline comparison, the greedy-vs-MILP verdict, and a Gantt-style
+timeline of each berth with tardy vessels highlighted. Because both UIs
+wrap the same functions the CLI does, the numbers match `src/cli.py` for
+the same instance.
+
+**Note on hosting the stdlib UI:** it needs a Python runtime with the CBC
+solver available, so it can't go on GitHub Pages (static-only) without
+porting the MILP to JavaScript/WASM. Streamlit Community Cloud is the
+simplest public-hosting path without changing any scheduling code.
 
 ## Running the tests
 
@@ -172,8 +209,9 @@ berth-scheduling/
 │   └── cli.py             # comparison CLI
 ├── tests/
 │   └── test_scheduling.py
-├── app.py              # stdlib web server wrapping the two solvers
-├── index.html          # browser UI (controls + Gantt + comparison)
+├── app.py              # stdlib web server (localhost UI)
+├── index.html          # browser UI — controls, Gantt, comparison
+├── streamlit_app.py    # Streamlit UI — deploys to share.streamlit.io
 ├── requirements.txt
 └── README.md
 ```
